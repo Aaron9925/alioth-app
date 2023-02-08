@@ -5,26 +5,35 @@ typedef bit<48> mac_addr;
 typedef bit<32> ipv4_addr_t;
 typedef bit<16> ethernet_type_t;
 
-enum bit<16> ether_type_t {
-    TPID       = 0x8100,
-    IPV4       = 0x0800
-}
+const bit<16> ETHERTYPE_TPID = 0x8100;
+const bit<16> ETHERTYPE_IPV4 = 0x0800;
 
-enum bit<8>  ip_proto_t {
-    TCP   = 6,
-    UDP   = 17
-}
+const bit<8>  IPTYPE_TCP = 0x06;
+const bit<8>  IPTYPE_UDP = 0x11;
+
+const bit<16>  UDPTYPE_ROCEV2 = 0x12B7;
+
+// enum bit<16> ether_type_t {
+//     TPID       = 0x8100,
+//     IPV4       = 0x0800
+// }
+
+// enum bit<8>  ip_proto_t {
+//     TCP   = 0x06,
+//     UDP   = 0x17
+// }
+
 header ethernet_t{
     mac_addr src_mac;
     mac_addr dst_mac;
-    ethernet_type_t ethernet_type;
+    bit<16> ether_type;
 }
 
 header vlan_tag_t{
     bit<3>        pcp;
     bit<1>        cfi;
     bit<12>       vid;
-    ether_type_t  ether_type;
+    bit<16>  ether_type;
 }
 
 header ipv4_t {
@@ -36,7 +45,7 @@ header ipv4_t {
     bit<3>       flags;
     bit<13>      frag_offset;
     bit<8>       ttl;
-    ip_proto_t   protocol;
+    bit<8>       protocol;
     bit<16>      hdr_checksum;
     ipv4_addr_t  src_addr;
     ipv4_addr_t  dst_addr;
@@ -99,31 +108,31 @@ parser IngressParser(packet_in pkt,
     state start{
         pkt.extract(ingr_intr_md);
         pkt.advance(PORT_METADATA_SIZE);
-        transition meta_init;
+        transition parse_ethernet;
     }
 
 
     state parse_ethernet{
         pkt.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type){
-            (bit<16>)ether_type_t.TPID &&& 0xEFFF :  parser_vlan_tag;
-            (bit<16>)ether_type_t.IPV4            :  parser_ipv4;
+            ETHERTYPE_TPID:  parse_vlan_tag;
+            ETHERTYPE_IPV4:  parse_ipv4;
             default :  accept;
         }
     }
-    state parser_vlan_tag{
+    state parse_vlan_tag{
         pkt.extract(hdr.vlan_tag);
         transition select(hdr.vlan_tag.ether_type)
         {
-            (bit<16>)ether_type_t.IPV4            :  parser_ipv4;
+            ETHERTYPE_TPID            :  parse_ipv4;
             default :  accept;
         }
     }
-    state parser_ipv4{
+    state parse_ipv4{
         pkt.extract(hdr.ipv4);
-        transition select(hdr.ipv4.ip_proto_t){
-            (bit<8>)ip_proto_t.TCP                :  parse_tcp;
-            (bit<8>)ip_proto_t.UDP                :  parse_udp;
+        transition select(hdr.ipv4.protocol){
+            IPTYPE_TCP                :  parse_tcp;
+            IPTYPE_UDP                :  parse_udp;
         }
     }
 
@@ -136,7 +145,7 @@ parser IngressParser(packet_in pkt,
     state parse_udp{
         pkt.extract(hdr.udp);
         transition select(hdr.udp.dst_port){
-            (bit<16>)4791                         :  parse_rocev2;
+            UDPTYPE_ROCEV2                         :  parse_rocev2;
             default :  accept;
         }
     }
@@ -167,7 +176,7 @@ control Ingress(inout my_ingress_headers_t hdr,
 
     table ipv4_host{
         key = { hdr.ipv4.dst_addr : exact; }
-        action = {
+        actions = {
             send;
             drop;
         }
@@ -176,7 +185,7 @@ control Ingress(inout my_ingress_headers_t hdr,
 
     table ipv4_lpm{
         key = {hdr.ipv4.dst_addr : lpm; }
-        action = {
+        actions = {
             send;
             drop;
         }
